@@ -17,6 +17,20 @@ conn = get_connection()
 query = "SELECT * FROM items"
 master_df = pd.read_sql(query, conn)
 
+units = {
+    "solid": ["gm", "g", "kg", "gram"],
+    "liquid": ["ml", "l", "litre"],
+    "unit": ["no", "number", "unit"]
+
+}
+
+def get_key_by_value(d, value):
+    for key, values in d.items():
+        if value.lower() in values:
+            return key
+    return None
+
+
 # Function to clean ITEMDESC (remove special characters)
 def clean_text(text):
     return re.sub(r"[^a-zA-Z0-9 ]", " ", text)  # Keep only alphanumeric and spaces
@@ -62,6 +76,7 @@ def jaccard_similarity_for_packtype(str1, str2):
 
 def process_rows(row):
     # Get values from the first row of data_items_df
+    reason = ""
     source_manufacture = row["MANUFACTURE"]
     source_brand = row["BRAND"]
     source_packsize = row["PACKSIZE"]
@@ -70,7 +85,7 @@ def process_rows(row):
 
     # Generate embeddings for the first row of data_items_df
     print("Generating embedding for data_items_df first row...")
-    combine = row['MANUFACTURE'] + " " + row['BRAND'] + " " + row['PACKTYPE']
+    combine = row['MANUFACTURE'] + " " + row['BRAND'] + " " + row['PACKTYPE'] + " " + row['PACKSIZE']
     filtered_itemdesc_embedding = get_sentence_embedding(source_itemdesc, combine)
     source_itemdesc_emb = get_sentence_embedding_master(source_itemdesc)
 
@@ -87,15 +102,17 @@ def process_rows(row):
         else:
             filter_1_run = False
 
-    master_filtered_1.to_csv("temporary/master_filter_1.csv")
+    # master_filtered_1.to_csv("temporary/master_filter_1.csv")
 
     print(f"Computing manuafaturing with company {source_manufacture}")
     dynamic_threshold_company = optimize_threshold(master_filtered_1,master_filtered_1["company_embedding"],"company",source_manufacture_emb,10)
     company_similarities = master_filtered_1["company_embedding"].apply(lambda emb: cosine_similarity([source_manufacture_emb], [np.array(ast.literal_eval(emb), dtype=float)])[0][0])
     master_filtered_1 = master_filtered_1[company_similarities >= dynamic_threshold_company]  # Adjust threshold if needed
 
-    master_filtered_1.to_csv("temporary/master_filter_dynamic_1.csv")
+    # master_filtered_1.to_csv("temporary/master_filter_dynamic_1.csv")
 
+    if master_filtered_1.shape[0] < 1:
+        reason += "Target Company not found"
 
     # Step 2: Filter the result based on brand similarity
     print("Filtering master_df based on brand...")
@@ -109,7 +126,7 @@ def process_rows(row):
         else:
             filter_2_run = False
 
-    master_filtered_2.to_csv("temporary/master_filter_2.csv")
+    # master_filtered_2.to_csv("temporary/master_filter_2.csv")
 
 
     print(f"Computing manuafaturing with brand {source_brand}")
@@ -117,8 +134,10 @@ def process_rows(row):
     brand_similarities = master_filtered_2["brand_embedding"].apply(lambda emb: cosine_similarity([source_brand_emb], [np.array(ast.literal_eval(emb), dtype=float)])[0][0])
     master_filtered_2 = master_filtered_2[brand_similarities >= dynamic_threshold_brand]  # Adjust threshold if needed
 
-    master_filtered_2.to_csv("temporary/master_filter_2_dynamic.csv")
+    # master_filtered_2.to_csv("temporary/master_filter_2_dynamic.csv")
 
+    if master_filtered_2.shape[0] < 1:
+        reason += "| Target Brand not found"
 
     # Step 3: Filter the result based on packtype similarity
     print("Filtering master_df based on packtype...")
@@ -132,7 +151,8 @@ def process_rows(row):
         else:
             filter_3_run = False
 
-    master_filtered_3.to_csv("temporary/master_filter_3.csv")
+    # master_filtered_3.to_csv("temporary/master_filter_3.csv")
+
 
 
     print(f"Computing manuafaturing with packtype {source_packtype}")
@@ -140,39 +160,35 @@ def process_rows(row):
     packtype_similarities = master_filtered_3["packaging_embedding"].apply(lambda emb: cosine_similarity([source_packtype_emb], [np.array(ast.literal_eval(emb), dtype=float)])[0][0])
     master_filtered_3 = master_filtered_3[packtype_similarities >= dynamic_threshold_packtype]  # Adjust threshold if needed
 
-    master_filtered_3.to_csv("temporary/master_filter_3_dynamic.csv")
+    # master_filtered_3.to_csv("temporary/master_filter_3_dynamic.csv")
 
+    if master_filtered_3.shape[0] < 1:
+        reason += "| Target Packtype not found"
 
     # Step 4: Filter the result based on packsize similarity
     print("Filtering master_df based on packsize...")
-    filter_4_run = True
-    while filter_4_run and len(source_packsize)>1:
-        source_packsize_emb = get_embedding(source_packsize)
-        packsize_similarities = master_filtered_3["pack_size_embedding"].apply(lambda emb: cosine_similarity([source_packsize_emb], [np.array(ast.literal_eval(emb), dtype=float)])[0][0])
-        master_filtered_4 = master_filtered_3[packsize_similarities >= 0.5]
-        if master_filtered_4["pack_size"].nunique() < 1:
-            source_packsize = " ".join(source_packsize[:].split(" ")[:-1])
-        else:
-            filter_4_run = False
+    packsize = source_packsize
+    qty = int(''.join(re.findall(r'\d+', packsize)))
+    uom = ''.join(re.findall(r'[A-Za-z]', packsize))
+    unit = get_key_by_value(units,uom.lower())
+    temp_filter_4_df = master_filtered_3[master_filtered_3["qty"] == qty]
+    master_filtered_4 = temp_filter_4_df[temp_filter_4_df['unit'] == unit]
 
-    master_filtered_4.to_csv("temporary/master_filter_4.csv")
+    # master_filtered_4.to_csv("temporary/master_filter_4_dynamic.csv")
 
-
-    print(f"Computing manuafaturing with packsize {source_packsize}")
-    dynamic_threshold_packsize = optimize_threshold(master_filtered_4,master_filtered_3["pack_size_embedding"],"pack_size",source_packsize_emb,80)
-    packsize_similarities = master_filtered_4["pack_size_embedding"].apply(lambda emb: cosine_similarity([source_packsize_emb], [np.array(ast.literal_eval(emb), dtype=float)])[0][0])
-    master_filtered_4 = master_filtered_4[packsize_similarities >= dynamic_threshold_packsize]  # Adjust threshold if needed
-
-    master_filtered_4.to_csv("temporary/master_filter_4_dynamic.csv")
-
+    if master_filtered_4.shape[0] < 1:
+        reason += "| Target Packsize or UOM not found"
 
     # Step 5: Filter the result based on itemdesc similarity
     print("Filtering master_df based on item description...")
+
     itemdesc_similarities = master_filtered_4["filtered_itemdesc_embedding"].apply(lambda emb: cosine_similarity([filtered_itemdesc_embedding], [np.array(ast.literal_eval(emb), dtype=float)])[0][0])
     master_final_filtered = master_filtered_4[itemdesc_similarities >= 0.80]
 
-    master_final_filtered.to_csv("temporary/master_filter_final.csv")
+    # master_final_filtered.to_csv("temporary/master_filter_final.csv")
 
+    if master_final_filtered.shape[0] < 1:
+        reason += "| Target Itemdesc not found"
 
     # Print final filtered results
     print("\nFinal Filtered Master Data:")
@@ -186,71 +202,16 @@ def process_rows(row):
         "Packtype": row['PACKTYPE'],
         "Packsize":row['PACKSIZE'],
 
-        "ITEMDESC_processed": source_itemdesc,
-        "BRAND_preocessed": source_brand,
-        "MANUFACTURE_processed": source_manufacture,
-        "PACKTYPE_processed": source_packtype,
-        "PACKSIZE_processed": source_packsize,
-
         "Matched_ITEMDESC":  None,
         "Matched_BRAND":  None,
         "Matched_MANUFACTURE":  None,
         "Matched_PACKTYPE":  None,
         "Matched_PACKSIZE":  None,
+        "Reason" : reason
 
 
-        "Threshold_Company": dynamic_threshold_company,
-        "Threshold_Brand": dynamic_threshold_brand,
-        "Threshold_Packtype": dynamic_threshold_packtype,
-        "Threshold_Packsize": dynamic_threshold_packsize,
-
-
-        "TFIDF_Score": None,
-        "best_processed_brand_jcc": None,
-        "best_processed_company_jcc": None,
-        "best_processed_packtype_jcc": None,
-        "best_processed_packsize_jcc": None,
-        "best_processed_itemdesc_jcc": None,
-
-}
-
-
-
-    # Compute TF-IDF similarity
-    print("Computing TF-IDF similarity...")
-    tfidf_vectorizer = TfidfVectorizer()
-    all_texts = master_final_filtered["itemdesc"].tolist() + [source_itemdesc]
-    tfidf_matrix = tfidf_vectorizer.fit_transform(all_texts)
-
-    target_vector = tfidf_matrix[-1]  # TF-IDF vector of source_itemdesc
-    master_tfidf_vectors = tfidf_matrix[:-1]  # TF-IDF vectors of master_final_filtered
-
-    tfidf_scores = cosine_similarity(master_tfidf_vectors, target_vector.reshape(1, -1)).flatten()
-    master_final_filtered["tfidf_score"] = tfidf_scores
-
+    }
     best_match = master_final_filtered.iloc[0] if not master_final_filtered.empty else None
-
-    brand_jcc = ""
-    company_jcc = ""
-    packtype_jcc =""
-    packsize_jcc = ""
-    iten_desc_jcc = ""
-
-    if best_match is not None:
-        brand_jcc  = jaccard_similarity(best_match["brand"], source_brand)
-        company_jcc  = jaccard_similarity(best_match["company"], source_manufacture)
-        #packtype_jcc  = jaccard_similarity(best_match["packaging"], source_packtype)
-        packsize_jcc  = jaccard_similarity(best_match["pack_size"], source_packsize)
-        iten_desc_jcc  = jaccard_similarity(best_match["itemdesc"], source_itemdesc)
-
-    packtype_match = None
-    packtype_row = None
-    packtype_jcc = ""
-    if row["PACKTYPE"] is not None and best_match["packaging"] is not None :
-        packtype_match = best_match["packaging"]
-        packtype_row = row["PACKTYPE"]
-        packtype_jcc = jaccard_similarity_for_packtype(packtype_match, packtype_row)
-
     return {
         "ITEMDESC": row["ITEMDESC"],
         "Brand": row["BRAND"],
@@ -258,32 +219,12 @@ def process_rows(row):
         "Packtype": row['PACKTYPE'],
         "Packsize":row['PACKSIZE'],
 
-        "ITEMDESC_processed": source_itemdesc,
-        "BRAND_preocessed": source_brand,
-        "MANUFACTURE_processed": source_manufacture,
-        "PACKTYPE_processed": source_packtype,
-        "PACKSIZE_processed": source_packsize,
-
-
         "Matched_ITEMDESC": best_match["itemdesc"] if best_match is not None else None,
         "Matched_BRAND": best_match["brand"] if best_match is not None else None,
         "Matched_MANUFACTURE": best_match["company"] if best_match is not None else None,
         "Matched_PACKTYPE":  best_match["packaging"] if best_match is not None else None,
         "Matched_PACKSIZE":  best_match["pack_size"] if best_match is not None else None,
-
-
-        "Threshold_Company": dynamic_threshold_company,
-        "Threshold_Brand": dynamic_threshold_brand,
-        "Threshold_Packtype": dynamic_threshold_packtype,
-        "Threshold_Packsize": dynamic_threshold_packsize,
-
-        "TFIDF_Score": best_match["tfidf_score"] if best_match is not None else None,
-        "best_processed_brand_jcc": brand_jcc,
-        "best_processed_company_jcc": company_jcc,
-        "best_processed_itemdesc_jcc": iten_desc_jcc,
-        "best_processed_packtype_jcc": packtype_jcc,
-        "best_processed_packtype_jcc": packsize_jcc,
-
+        "Reason" : reason
     }
 
 if __name__=="__main__":

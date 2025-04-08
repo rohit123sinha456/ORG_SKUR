@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS items (
     brand TEXT,
     packaging TEXT,
     pack_size TEXT,
+    qty INT,
+    uom TEXT,
+    unit TEXT,
     filtered_itemdesc_embedding VECTOR(1024),
     itemdesc_embedding VECTOR(1024),
     company_embedding VECTOR(512),
@@ -69,5 +72,5 @@ def connect_and_create():
     except Exception as e:
         print("❌ Error:", e)
 
-# if __name__ == "__main__":
-#     connect_and_create()
+if __name__ == "__main__":
+    connect_and_create()

@@ -22,12 +22,25 @@ from weighted_attention_map import get_sentence_embedding , get_sentence_embeddi
 tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
 model = T5EncoderModel.from_pretrained("google-t5/t5-small")
 
+units = {
+    "solid": ["gm", "g", "kg", "gram"],
+    "liquid": ["ml", "l", "litre"],
+    "unit": ["no", "number", "unit"]
+
+}
+
 # Function to get T5 embeddings
 def get_embedding(text):
     inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=128)
     with torch.no_grad():
         outputs = model.encoder(**inputs)
     return outputs.last_hidden_state.mean(dim=1).squeeze().detach().numpy().tolist()
+
+def get_key_by_value(d, value):
+    for key, values in d.items():
+        if value.lower() in values:
+            return key
+    return None
 
 # Insert one row into DB
 def insert_row(conn, row):
@@ -39,15 +52,16 @@ def insert_row(conn, row):
                 brand, brand_embedding,
                 packaging, packaging_embedding,
                 pack_size, pack_size_embedding,
-                itemdesc, itemdesc_embedding,filtered_itemdesc_embedding
-            ) VALUES (%s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)
+                itemdesc, itemdesc_embedding,filtered_itemdesc_embedding,qty,uom,unit
+            ) VALUES (%s,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s,%s,%s,%s)
         """, (
             row["itemcode"],
             row['company'], row['company_embedding'],
             row['brand'], row['brand_embedding'],
             row['packaging'], row['packaging_embedding'],
             row['pack_size'], row['pack_size_embedding'],
-            row['itemdesc'], row['itemdesc_embedding'],row["filtered_itemdesc_embedding"]
+            row['itemdesc'], row['itemdesc_embedding'],row["filtered_itemdesc_embedding"],
+            row['qty'],row['uom'],row['unit'],
         ))
     conn.commit()
 
@@ -55,7 +69,7 @@ def insert_embeddings_from_df(df):
     conn = get_connection()
     for idx, row in df.iterrows():
         print(f"Inserting row {idx + 1}/{len(df)}...")
-        combine = row['company'] + " " + row['brand'] + " " + row['packaging']
+        combine = row['company'] + " " + row['brand'] + " " + row['packaging']+ " " + str(row['qty'])+ " " + row['uomdesc']
         filtered_itemdesc_embedding = get_sentence_embedding(row['itemdesc'],combine)
         itemdesc_embedding = get_sentence_embedding_master(row["itemdesc"])
         # Generate embeddings for all relevant fields
@@ -70,6 +84,9 @@ def insert_embeddings_from_df(df):
             'pack_size_embedding': get_embedding(row['pack_size']),
             'itemdesc':  row['itemdesc'],
             'itemcode': row['itemcode'],
+            'qty': int(row['qty']),
+            'uom': row['uomdesc'],
+            'unit':get_key_by_value(units,row['uomdesc'].lower()),
             'filtered_itemdesc_embedding': filtered_itemdesc_embedding.tolist(), # get_embedding(row['itemdesc']),
             'itemdesc_embedding' : itemdesc_embedding.tolist(),
         }
@@ -84,9 +101,9 @@ if __name__ == "__main__":
     master_file = r"D:\Rohit\ORG_SKUR\new_data\master.csv"
     master_df = pd.read_csv(master_file, encoding='ISO-8859-1')
     # Ensure columns are treated as strings
-    for col in ["company", "brand", "packaging", "pack_size", "itemdesc"]:
+    for col in ["company", "brand", "packaging", "pack_size", "itemdesc","uomdesc"]:
         master_df[col] = master_df[col].astype(str)
-    insert_embeddings_from_df(master_df[4480:4490])
+    insert_embeddings_from_df(master_df[4400:4500])
 
 
 
