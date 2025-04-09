@@ -1,5 +1,9 @@
 import pandas as pd
 import re
+from sklearn.metrics.pairwise import cosine_similarity
+from weighted_attention_map import get_sentence_embedding_master,get_sentence_embedding
+import numpy as np
+import ast
 
 units = {
     "solid": ["gm", "g", "kg", "gram"],
@@ -14,15 +18,27 @@ def get_key_by_value(d, value):
             return key
     return None
 
+def clean_text(text):
+    return re.sub(r"[^a-zA-Z0-9 ]", " ", text)  # Keep only alphanumeric and spaces
 
 data_items_df = pd.read_csv(r"D:\Rohit\ORG_SKUR\new_data\data-new-items-202410.csv")
-master_df = pd.read_csv(r"/dump/master_filter_3_dynamic.csv", encoding='ISO-8859-1')
+master_df = pd.read_csv(r"D:\Rohit\ORG_SKUR\temporary\master_filter_4_dynamic.csv", encoding='ISO-8859-1')
 
-row_data = data_items_df.iloc[69:70]
-print(row_data["PACKSIZE"].values[0])
-qty = int(''.join(re.findall(r'\d+', row_data["PACKSIZE"].values[0])))
-uom = ''.join(re.findall(r'[A-Za-z]', row_data["PACKSIZE"].values[0]))
-unit = get_key_by_value(uom.lower())
-x = master_df[master_df["qty"] == qty]
-y = x[x['unit'] == unit]
-print(x['ITEMDESC'])
+row = data_items_df.iloc[3]
+source_itemdesc = clean_text(row["ITEMDESC"])
+
+combine = row['MANUFACTURE'] + " " + row['BRAND'] + " " + row['PACKTYPE'] + " " + row['PACKSIZE']
+filtered_itemdesc_embedding = get_sentence_embedding(source_itemdesc, combine)
+print(type(filtered_itemdesc_embedding))
+
+itemdesc_similarities = master_df["filtered_itemdesc_embedding"].apply(lambda emb: cosine_similarity([filtered_itemdesc_embedding], [np.array(ast.literal_eval(emb), dtype=float)])[0][0])
+
+if itemdesc_similarities.max() < 0.80:
+    itemdesc_threshold = itemdesc_similarities.max()
+else:
+    itemdesc_threshold = 0.80
+
+master_df['itemdesc_similarity'] = itemdesc_similarities
+master_df_sorted = master_df.sort_values(by='itemdesc_similarity', ascending=False)
+
+print(master_df_sorted.iloc[0]['itemdesc'])
