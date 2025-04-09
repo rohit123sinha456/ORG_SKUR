@@ -103,7 +103,7 @@ if __name__ == "__main__":
     # Ensure columns are treated as strings
     for col in ["company", "brand", "packaging", "pack_size", "itemdesc","uomdesc"]:
         master_df[col] = master_df[col].astype(str)
-    insert_embeddings_from_df(master_df[4400:4500])
+    insert_embeddings_from_df(master_df[10000:11000])
 
 
 
