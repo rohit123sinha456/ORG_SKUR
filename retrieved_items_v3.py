@@ -10,12 +10,24 @@ from db import get_connection
 import ast
 import numpy as np
 import re
+import os
+from concurrent.futures import ThreadPoolExecutor
+from glob import glob
+
+
 tokenizer = AutoTokenizer.from_pretrained("google-t5/t5-small")
 model = T5EncoderModel.from_pretrained("google-t5/t5-small")
 conn = get_connection()
 # Read embeddings and any other relevant columns
-query = "SELECT * FROM items"
-master_df = pd.read_sql(query, conn)
+# Global variable
+master_df = None
+
+def load_master_df():
+    global master_df
+    conn = get_connection()
+    query = "SELECT * FROM items"
+    master_df = pd.read_sql(query, conn)
+    print("Loaded Master Data")
 
 units = {
     "solid": ["gm", "g", "kg", "gram"],
@@ -265,32 +277,35 @@ def process_rows(row):
         "Score" : score + float(best_match["itemdesc_similarity"])*0.2 if best_match is not None else None
     }
 
-def process_csv(filename,startindex,endindex):
-    # Process all rows in data_items_df
-    data_items_df = pd.read_csv(f"D:/Rohit/ORG_SKUR/new_data/data_file/{filename}")
-    results = []
-    for index, row in data_items_df.iloc[startindex:endindex].iterrows():
-        print(f"Processing row {index + 1}/{len(data_items_df)}...")
-        try:
-            x = process_rows(row)
-            results.append(x)
-        except Exception as e:
-            print(str(e))
 
-    df_results = pd.DataFrame(results)
-    df_results.to_csv(f"D:/Rohit/ORG_SKUR/processed_result_chunk_3/filtered_results_{filename}", index=False)
+def process_csv(csv_path):
+    df = pd.read_csv(csv_path)
+    results = []
+    for _, row in df.iloc[10:20].iterrows():
+        result = process_rows(row)  # process_rows uses global master_df
+        if result:
+            results.append(result)
+    result_df = pd.DataFrame(results)
+    # Save or return as needed
+    output_path = csv_path.replace(".csv", "_matched_chunk2.csv")
+    result_df.to_csv(output_path, index=False)
+    print(f"Processed: {csv_path} -> {output_path}")
+    return output_path
+
+def process_all_csvs(csv_folder, max_threads=4):
+    # Load all CSVs
+    csv_files = glob(os.path.join(csv_folder, "*.csv"))
+
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = [executor.submit(process_csv, csv) for csv in csv_files]
+        for future in futures:
+            try:
+                output_file = future.result()
+                print(f"Done: {output_file}")
+            except Exception as e:
+                print(f"Error in processing: {e}")
 
 
 if __name__=="__main__":
-    files = ["data-new-items-202410.csv",
-             "data-new-items-202411.csv",
-             "data-new-items-202412.csv",
-             "data-new-items-202501.csv",
-             "data-new-items-202502.csv",
-             "data-new-items-202503.csv",
-             ]
-    start = 20
-    end = 30
-    print("Starting process")
-    for file in files:
-        process_csv(file,start,end)
+    load_master_df()
+    process_all_csvs(csv_folder="new_data", max_threads=8)

@@ -90,7 +90,7 @@ def insert_embeddings_from_df(df):
             'filtered_itemdesc_embedding': filtered_itemdesc_embedding.tolist(), # get_embedding(row['itemdesc']),
             'itemdesc_embedding' : itemdesc_embedding.tolist(),
         }
-        print(row_data)
+        # print(row_data)
         # Insert into DB
         insert_row(conn, row_data)
 
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     # Ensure columns are treated as strings
     for col in ["company", "brand", "packaging", "pack_size", "itemdesc","uomdesc"]:
         master_df[col] = master_df[col].astype(str)
-    insert_embeddings_from_df(master_df[11000:11000])
+    insert_embeddings_from_df(master_df[25000:])
 
 
 
