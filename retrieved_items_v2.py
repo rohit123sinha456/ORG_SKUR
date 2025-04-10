@@ -289,8 +289,8 @@ if __name__=="__main__":
              "data-new-items-202502.csv",
              "data-new-items-202503.csv",
              ]
-    start = 20
-    end = 30
+    start = 30
+    end = 40
     print("Starting process")
     for file in files:
         process_csv(file,start,end)
